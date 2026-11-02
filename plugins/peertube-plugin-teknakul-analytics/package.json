@@ -1,0 +1,15 @@
+{
+  "name": "peertube-plugin-teknakul-analytics",
+  "version": "1.0.0",
+  "description": "Cross-platform analytics — one dashboard for your Teknakul, Twitch and YouTube audience: live viewers now, lifetime views, followers/subscribers.",
+  "engine": { "peertube": ">=6.0.0" },
+  "keywords": [ "peertube", "plugin", "peertube-plugin" ],
+  "homepage": "https://teknakul.com",
+  "author": "Teknakul",
+  "bugs": "https://teknakul.com",
+  "library": "./main.js",
+  "staticDirs": {},
+  "css": [],
+  "clientScripts": [ { "script": "client/analytics.js", "scopes": [ "common" ] } ],
+  "translations": {}
+}

@@ -1,0 +1,223 @@
+// Runbook Mode - "Ask this video" co-pilot panel on the watch page.
+// Asks the self-hosted co-pilot API a question about the current video, shows the
+// answer + a verbatim quote, and jumps the player to the most relevant timestamp.
+async function register ({ registerHook }) {
+  const TEAL = '#3ebdf8'
+  // Public endpoint of the ask API (Cloudflare route -> linuxg1:3081). Override-able.
+  const API = (window.TEKNAKUL_ASK_API || 'https://runbook.teknakul.com').replace(/\/$/, '')
+
+  let player = null
+  let currentVideo = null
+
+  registerHook({
+    target: 'action:video-watch.player.loaded',
+    handler: (params) => { player = (params && (params.player || params.videojs)) || player }
+  })
+
+  registerHook({
+    target: 'action:video-watch.video.loaded',
+    handler: (params) => {
+      currentVideo = (params && (params.video || params)) || null
+      // let the DOM settle, then inject
+      setTimeout(injectPanel, 400)
+    }
+  })
+
+  function fmt (sec) {
+    sec = Math.max(0, parseInt(sec, 10) || 0)
+    const m = Math.floor(sec / 60), s = sec % 60
+    return m + ':' + String(s).padStart(2, '0')
+  }
+
+  function seek (sec) {
+    try {
+      if (player && typeof player.currentTime === 'function') {
+        player.currentTime(sec)
+        if (typeof player.play === 'function') player.play()
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }
+    } catch (e) { /* no-op */ }
+  }
+
+  function findAnchor () {
+    // Place the panel in the video-info column, directly under the player — not in the
+    // player-overlay placeholder (which floats it over the video).
+    return document.querySelector('my-video-watch .video-info')
+      || document.querySelector('.video-info')
+      || document.querySelector('my-video-watch')
+  }
+
+  function injectPanel () {
+    const existing = document.getElementById('tk-runbook')
+    if (existing) existing.remove()
+    const anchor = findAnchor()
+    if (!anchor || !currentVideo) return
+
+    const videoId = currentVideo.uuid || currentVideo.shortUUID || currentVideo.id
+    const box = document.createElement('div')
+    box.id = 'tk-runbook'
+    Object.assign(box.style, {
+      border: '1px solid rgba(62,189,248,.35)', borderRadius: '14px',
+      padding: '16px 18px', margin: '18px 0',
+      background: '#0f1729', color: '#e6edf5',
+      boxShadow: '0 10px 30px -12px rgba(0,0,0,.6)'
+    })
+
+    const title = document.createElement('div')
+    title.textContent = '✨ Ask this video'
+    Object.assign(title.style, { fontWeight: '700', fontSize: '16px', marginBottom: '4px', color: TEAL })
+    const sub = document.createElement('div')
+    sub.textContent = 'AI co-pilot — answers from the transcript and jumps you to the moment.'
+    Object.assign(sub.style, { fontSize: '13px', color: '#9fb0c4', marginBottom: '12px' })
+
+    const row = document.createElement('div')
+    Object.assign(row.style, { display: 'flex', gap: '8px' })
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.placeholder = 'e.g. Where do they assign the policy?'
+    Object.assign(input.style, {
+      flex: '1', padding: '10px 12px', borderRadius: '10px',
+      border: '1px solid rgba(62,189,248,.35)', background: '#0b1120',
+      color: '#e6edf5', fontSize: '14px', outline: 'none'
+    })
+    const btn = document.createElement('button')
+    btn.textContent = 'Ask'
+    Object.assign(btn.style, {
+      padding: '10px 20px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+      background: TEAL, color: '#04100e', fontWeight: '700', fontSize: '14px', flex: 'none'
+    })
+
+    const out = document.createElement('div')
+    Object.assign(out.style, { marginTop: '12px', fontSize: '14.5px', lineHeight: '1.55', color: '#e6edf5', display: 'none' })
+
+    row.appendChild(input); row.appendChild(btn)
+
+    // Export runbook: a printable/portable version of the transcript, chapters & commands.
+    const exp = document.createElement('div')
+    Object.assign(exp.style, { marginTop: '10px', fontSize: '12.5px', color: '#9fb0c4' })
+    const mkLink = (label, fmt) => {
+      const a = document.createElement('a')
+      a.textContent = label
+      a.href = API + '/export?videoId=' + encodeURIComponent(videoId) + '&format=' + fmt
+      a.target = '_blank'; a.rel = 'noopener'
+      Object.assign(a.style, { color: TEAL, textDecoration: 'none', fontWeight: '700' })
+      return a
+    }
+    exp.appendChild(document.createTextNode('⬇ Export runbook: '))
+    exp.appendChild(mkLink('Markdown', 'md'))
+    exp.appendChild(document.createTextNode('  ·  '))
+    exp.appendChild(mkLink('Printable (PDF)', 'html'))
+
+    const rep = document.createElement('div')
+    Object.assign(rep.style, { marginTop: '6px', fontSize: '12.5px', color: '#9fb0c4' })
+    const repA = document.createElement('a')
+    repA.textContent = '♻ Repurpose this video (blog · social · shorts)'
+    repA.href = API + '/repurpose?videoId=' + encodeURIComponent(videoId) + '&format=html'
+    repA.target = '_blank'; repA.rel = 'noopener'
+    Object.assign(repA.style, { color: TEAL, textDecoration: 'none', fontWeight: '700' })
+    rep.appendChild(repA)
+
+    box.appendChild(title); box.appendChild(sub); box.appendChild(row); box.appendChild(out); box.appendChild(exp); box.appendChild(rep)
+
+    // top of the info column = directly beneath the video player
+    anchor.insertBefore(box, anchor.firstChild)
+
+    async function ask () {
+      const q = input.value.trim()
+      if (!q) return
+      out.style.display = 'block'
+      out.innerHTML = '<span style="opacity:.7">Thinking…</span>'
+      btn.disabled = true
+      try {
+        const res = await fetch(API + '/ask', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ videoId, question: q })
+        })
+        const d = await res.json()
+        if (d.error) throw new Error(d.error)
+        render(d)
+      } catch (e) {
+        out.innerHTML = '<span style="opacity:.8">The co-pilot is unavailable right now. ('
+          + (e && e.message ? e.message : 'network error') + ')</span>'
+      } finally { btn.disabled = false }
+    }
+
+    function render (d) {
+      out.innerHTML = ''
+      const ans = document.createElement('div')
+      ans.textContent = d.answer || 'No answer.'
+      out.appendChild(ans)
+      if (d.quote) {
+        const q = document.createElement('div')
+        q.textContent = '“' + d.quote + '”'
+        Object.assign(q.style, {
+          marginTop: '8px', paddingLeft: '10px', borderLeft: '3px solid ' + TEAL,
+          fontStyle: 'italic', opacity: '.85', fontSize: '13.5px'
+        })
+        out.appendChild(q)
+      }
+      if (d.found && d.timecode >= 0) {
+        const jump = document.createElement('button')
+        jump.textContent = '▶ Jump to ' + fmt(d.timecode)
+        Object.assign(jump.style, {
+          marginTop: '10px', padding: '7px 14px', borderRadius: '9px', cursor: 'pointer',
+          border: '1px solid ' + TEAL, background: 'transparent', color: TEAL, fontWeight: '700', fontSize: '13px'
+        })
+        jump.addEventListener('click', () => seek(d.timecode))
+        out.appendChild(jump)
+      }
+    }
+
+    btn.addEventListener('click', ask)
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') ask() })
+
+    // ---- Copyable commands panel (auto-loads any commands in the transcript) ----
+    loadCommands(videoId, box)
+  }
+
+  async function loadCommands (videoId, box) {
+    let data
+    try {
+      const res = await fetch(API + '/commands?videoId=' + encodeURIComponent(videoId))
+      data = await res.json()
+    } catch (e) { return }
+    if (!data || !data.commands || !data.commands.length) return
+
+    const panel = document.createElement('div')
+    Object.assign(panel.style, { marginTop: '14px', borderTop: '1px solid rgba(39,211,193,.18)', paddingTop: '12px' })
+    const h = document.createElement('div')
+    h.textContent = '⌨️ Commands in this video'
+    Object.assign(h.style, { fontWeight: '700', fontSize: '14px', marginBottom: '8px', color: TEAL })
+    panel.appendChild(h)
+
+    data.commands.forEach(c => {
+      const row = document.createElement('div')
+      Object.assign(row.style, {
+        display: 'flex', alignItems: 'center', gap: '8px', margin: '6px 0',
+        background: 'rgba(0,0,0,.25)', border: '1px solid rgba(39,211,193,.15)',
+        borderRadius: '9px', padding: '8px 10px'
+      })
+      const code = document.createElement('code')
+      code.textContent = c.command
+      Object.assign(code.style, { flex: '1', fontFamily: 'ui-monospace,Menlo,Consolas,monospace', fontSize: '13px', color: '#d7fff7', whiteSpace: 'pre-wrap', wordBreak: 'break-all' })
+      const copy = document.createElement('button')
+      copy.textContent = 'Copy'
+      Object.assign(copy.style, { flex: 'none', padding: '5px 12px', borderRadius: '7px', border: '1px solid ' + TEAL, background: 'transparent', color: TEAL, fontWeight: '700', fontSize: '12px', cursor: 'pointer' })
+      copy.addEventListener('click', () => {
+        try { navigator.clipboard.writeText(c.command); copy.textContent = 'Copied ✓'; setTimeout(() => { copy.textContent = 'Copy' }, 1500) } catch (e) {}
+      })
+      row.appendChild(code); row.appendChild(copy)
+      panel.appendChild(row)
+      if (c.timecode > 0) {
+        const jump = document.createElement('a')
+        jump.textContent = '· ' + fmt(c.timecode)
+        Object.assign(jump.style, { fontSize: '11px', color: '#8fb6b1', cursor: 'pointer', flex: 'none' })
+        jump.addEventListener('click', () => seek(c.timecode))
+        row.appendChild(jump)
+      }
+    })
+    box.appendChild(panel)
+  }
+}
+
+export { register }

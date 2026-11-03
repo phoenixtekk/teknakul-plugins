@@ -21,3 +21,22 @@ with the platform over its network API are independent programs and are not part
 ## License
 
 AGPL-3.0 — see [LICENSE](LICENSE).
+
+## Keeping this in step with the instance
+
+Plugins are edited on the host in `data/plugin-src` and installed from
+there, so this repo only stays current if the change is copied back. On
+3 November 2026 it was two plugins behind production and nobody knew.
+
+```bash
+tools/check-drift.sh
+```
+
+It compares every plugin's version against the host, exits non-zero if any
+differ, and names anything on the host that is missing here — which is the
+worse direction, since that plugin then exists on one disk only.
+
+It compares **versions**, not file contents, on purpose: a plugin edited
+without a version bump cannot be installed cleanly anyway, because PeerTube
+serves client scripts from a path containing the version and caches them
+`immutable` for thirty days.

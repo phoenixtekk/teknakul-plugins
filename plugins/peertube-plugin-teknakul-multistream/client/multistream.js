@@ -5,10 +5,29 @@ async function register ({ registerHook, registerClientRoute, peertubeHelpers })
   const SKY = '#3ebdf8'
   const API = (window.TEKNAKUL_RESTREAM_API || 'https://restream.teknakul.com').replace(/\/$/, '')
   const PLATFORMS = {
-    twitch:  'rtmp://live.twitch.tv/app',
-    youtube: 'rtmp://a.rtmp.youtube.com/live2',
-    kick:    '',   // Kick provides a full rtmps ingest URL per user
-    custom:  ''
+    twitch:   'rtmp://live.twitch.tv/app',
+    youtube:  'rtmp://a.rtmp.youtube.com/live2',
+    facebook: 'rtmps://live-api-s.facebook.com:443/rtmp',  // stable RTMPS ingest; key only
+    kick:     '',   // Kick provides a full rtmps ingest URL per user
+    telegram: '',   // Telegram provides a per-user rtmps server URL (rtmps://dcN-1.rtmp.t.me/s/)
+    rumble:   '',   // Rumble Studio Direct RTMP room mints its own stream URL + key
+    linkedin: '',   // LinkedIn Live event mints an RTMP(S) URL + key ~10 min before start
+    tiktok:   '',   // TikTok LIVE Producer mints a per-session server URL + key
+    custom:   ''
+  }
+  // Proper brand casing for the dropdown (auto-capitalise is wrong for these).
+  const LABELS = { youtube: 'YouTube', linkedin: 'LinkedIn', tiktok: 'TikTok' }
+  // Short, platform-specific guidance shown under the add form.
+  const HINTS = {
+    twitch:   'Twitch → Creator Dashboard → Settings → Stream. Paste your primary Stream Key below.',
+    youtube:  'YouTube Studio → Go Live → Stream. Paste the Stream Key below (the server is already set).',
+    facebook: 'Facebook → Live Producer → “Use stream key”. Turn on “Persistent stream key” so it doesn’t change each time, then paste the Stream Key below (the server is already set).',
+    kick:     'Kick → Settings → Stream Key. Paste the full rtmps server URL into RTMP server and the key below.',
+    telegram: 'In Telegram open your channel → ⋮ menu → Live Stream → “Stream With…”. Copy the Server URL (rtmps://…t.me/s/) into RTMP server and the Stream Key below. The channel must be live-streaming for the relay to connect.',
+    rumble:   'Rumble → Studio → create a Direct RTMP room. Copy that room’s Stream URL into RTMP server and the key below. (Needs a Rumble account with livestreaming enabled.)',
+    linkedin: 'LinkedIn Live needs approved Live access. Create your LinkedIn Live event, then ~10 min before start generate the RTMP URL + key in LinkedIn’s Live Studio and paste them below.',
+    tiktok:   'TikTok LIVE via RTMP needs LIVE access (about 1,000 followers). In TikTok Live Producer (desktop) add a title + category → Save & Go LIVE to reveal the Server URL and Stream Key, then paste them below.',
+    custom:   'Paste the rtmp:// or rtmps:// server URL and stream key from your platform.'
   }
 
   function authHeaders () {
@@ -65,7 +84,7 @@ async function register ({ registerHook, registerClientRoute, peertubeHelpers })
     if (!state.max || state.max <= 0) {
       const up = el('div', { border: '1px solid rgba(62,189,248,.35)', borderRadius: '14px', padding: '22px', background: 'rgba(62,189,248,.06)' })
       up.appendChild(el('div', { fontWeight: '700', fontSize: '17px', marginBottom: '6px' }, 'Multistreaming is a Pro feature'))
-      up.appendChild(el('div', { color: 'var(--fg-350,#94a3b8)', marginBottom: '16px' }, 'Broadcast to Twitch, YouTube, Kick and more at the same time — from your desk or your phone. Stream once, reach everywhere.'))
+      up.appendChild(el('div', { color: 'var(--fg-350,#94a3b8)', marginBottom: '16px' }, 'Broadcast to Twitch, YouTube, Facebook, Telegram, Rumble, Kick, LinkedIn and TikTok at the same time — from your desk or your phone. Stream once, reach everywhere.'))
       async function checkout (plan) {
         try {
           const d = await api('/billing/checkout', { method: 'POST', body: JSON.stringify({ plan }) })
@@ -89,17 +108,26 @@ async function register ({ registerHook, registerClientRoute, peertubeHelpers })
     card.appendChild(el('div', { fontWeight: '700', marginBottom: '12px' }, 'Add a destination'))
     const row = el('div', { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' })
     const platform = el('select', inputStyle())
-    ;['twitch', 'youtube', 'kick', 'custom'].forEach(p => {
-      const o = el('option', null, p.charAt(0).toUpperCase() + p.slice(1)); o.value = p; platform.appendChild(o)
+    ;['twitch', 'youtube', 'facebook', 'telegram', 'rumble', 'kick', 'linkedin', 'tiktok', 'custom'].forEach(p => {
+      const o = el('option', null, LABELS[p] || (p.charAt(0).toUpperCase() + p.slice(1))); o.value = p; platform.appendChild(o)
     })
     const label = mkInput('Label (e.g. My Twitch)')
     const rtmp = mkInput('rtmp:// server URL')
     const key = mkInput('Stream key'); key.type = 'password'
-    function syncRtmp () { rtmp.value = PLATFORMS[platform.value] || ''; rtmp.disabled = platform.value !== 'custom' && platform.value !== 'kick' }
+    const hint = el('div', { marginTop: '8px', fontSize: '12px', color: 'var(--fg-350,#94a3b8)', lineHeight: '1.5' })
+    // A fixed preset (Twitch/YouTube) locks the server field; platforms that mint a
+    // per-user ingest URL (Kick, Telegram) or custom leave it editable.
+    function syncRtmp () {
+      const preset = PLATFORMS[platform.value] || ''
+      rtmp.value = preset
+      rtmp.disabled = !!preset
+      hint.textContent = HINTS[platform.value] || ''
+    }
     platform.addEventListener('change', syncRtmp); syncRtmp()
     row.appendChild(field('Platform', platform)); row.appendChild(field('Label', label))
     row.appendChild(field('RTMP server', rtmp)); row.appendChild(field('Stream key', key))
     card.appendChild(row)
+    card.appendChild(hint)
     const addBtn = el('button', { marginTop: '12px', padding: '10px 20px', borderRadius: '10px', border: 'none', background: SKY, color: '#0b1120', fontWeight: '700', cursor: 'pointer' }, 'Add destination')
     const msg = el('div', { marginTop: '10px', fontSize: '13px', color: '#f88' })
     addBtn.addEventListener('click', async () => {

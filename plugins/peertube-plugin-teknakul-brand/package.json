@@ -1,6 +1,6 @@
 {
   "name": "peertube-plugin-teknakul-brand",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "Teknakul Brand — rebrands residual \"PeerTube\" UI text to \"Teknakul\" across the app (menus, About, the admin welcome dialog, page titles).",
   "engine": { "peertube": ">=6.0.0" },
   "keywords": [ "peertube", "plugin", "peertube-plugin" ],
